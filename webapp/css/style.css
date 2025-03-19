@@ -1,0 +1,9 @@
+div#container-timesheet---View1--SplitContDemo-Master {
+    width: 40%;
+}
+.sapMSplitContainerDetail .sapUiResponsiveMargin {
+    margin: 0rem !important;
+}
+.sapUiSizeCompact .sapMListTblRow {
+    height: 3rem;
+}
