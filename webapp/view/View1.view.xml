@@ -101,7 +101,7 @@
             >
                 <headerContent>
                     <Toolbar>
-                        <Title text="TimeSheet Details" />
+                        <Title text="" />
                         <ToolbarSpacer />
                         <ComboBox
                             id="yearComboBox"

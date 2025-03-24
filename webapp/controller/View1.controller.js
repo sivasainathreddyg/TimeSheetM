@@ -29,6 +29,10 @@ sap.ui.define([
             var oVizFrame = this.getView().byId("leaveChart");
             if (oVizFrame) {
                 oVizFrame.setVizProperties({
+                    title: {
+                        visible: true,
+                        text: "Employees Leaves" // ✅ This should replace "Title of Chart"
+                    },
                     valueAxis: {
                         title: {
                             visible: true
@@ -38,8 +42,8 @@ sap.ui.define([
                         },
                         scale: {
                             fixedRange: true, // Prevents auto-scaling
-                            minValue: 1,
-                            maxValue: 6 // Set based on expected max leaves
+                            minValue: 0,
+                            maxValue: 5 // Set based on expected max leaves
                         }
                     },
                     categoryAxis: {
@@ -144,6 +148,19 @@ sap.ui.define([
                 oTable.addItem(oRow);
 
             }, this);
+
+            var oModel = this.getView().getModel();
+            var aEmployees = oModel.getProperty("/employees");
+        
+            // **Reset Leave Count for all Employees**
+            aEmployees.forEach(function (oEmp) {
+                oEmp.leaveCount = 0;
+            });
+        
+            // **Update Model & Refresh**
+            oModel.setProperty("/employees", aEmployees);
+            oModel.refresh(true); // Ensure UI updates
+            this.updateChart();
         },
         // onCellValueChange: function (oEvent) {
         //     var oInput = oEvent.getSource();
@@ -168,7 +185,7 @@ sap.ui.define([
             var iTotal = 0;
             var iLeaveCount = 0;
 
-            oRow.getCells().forEach(function (oCell, index, aCells) {
+            oRow.getCells().forEach(function (oCell, index, aCells) { 
                 if (index > 0 && index < aCells.length - 1) { // ✅ Skip first (name) & last (total) columns
                     var sValue = oCell.getValue().trim();
 
@@ -206,83 +223,161 @@ sap.ui.define([
             var oModel = this.getView().getModel();
             oChart.setModel(oModel);
             oChart.getModel().refresh(true);
-        },
+        }, 
+        
+        
+        OnDownloaddata: async function () {
+            try {
+                var oEmployeeTable = this.getView().byId("employeeTable");
+                var oTimesheetTable = this.getView().byId("timesheetTable");
+                var oVizFrame = this.getView().byId("leaveChart"); // Chart reference
+                var oYearComboBox = this.getView().byId("yearComboBox");
+                var oMonthComboBox = this.getView().byId("monthComboBox");
+        
+                var sSelectedYear = oYearComboBox.getSelectedKey() || new Date().getFullYear();
+                var sSelectedMonth = oMonthComboBox.getSelectedKey() || new Date().toLocaleString("default", { month: "long" });
+        
+                var aEmployeeRows = oEmployeeTable.getItems();
+                var aTimesheetRows = oTimesheetTable.getItems();
+                var aColumns = oTimesheetTable.getColumns();
+        
+                if (!aEmployeeRows.length || !aTimesheetRows.length) {
+                    MessageToast.show("No data available to download.");
+                    return;
+                }
+        
+                // Initialize Workbook
+                var workbook = new ExcelJS.Workbook();
+                var worksheet = workbook.addWorksheet("Timesheet");
+        
+                var aHeaderRow = ["Name", "Client", "Project", "Client ID"];
+                var aDates = [];
+                var aWeekendColumns = [];
+                var sSelectedYear = oYearComboBox.getSelectedKey() || new Date().getFullYear(); // Get selected year
+
+                // Extract column headers dynamically
+                for (var i = 1; i < aColumns.length; i++) {
+                    
+                    var sDateHeader = aColumns[i].getHeader().getText();
+                    aHeaderRow.push(sDateHeader); 
+                    aDates.push(sDateHeader);
+                    var oDate = new Date(`${sSelectedYear} ${sDateHeader}`); 
+                    if (oDate.getDay() === 6 || oDate.getDay() === 0) {
+                        aWeekendColumns.push(sDateHeader); 
+                    } 
+                   
+                }
+                aHeaderRow.push("Total");
+        
+                // Add Title Row
+                let titleRow = worksheet.addRow([`Timesheet - ${sSelectedMonth} ${sSelectedYear}`]);
+                titleRow.getCell(1).font = { bold: true, size: 14 };
+                worksheet.mergeCells("A1:" + String.fromCharCode(65 + aHeaderRow.length - 1) + "1");
+        
+                // Add Empty Row
+                worksheet.addRow([]);
+        
+                // Add Header Row with Styling
+                let headerRow = worksheet.addRow(aHeaderRow);
+                headerRow.eachCell((cell, colNumber) => {
+                    cell.font = { bold: true, color: { argb: "FFFFFF" } };
+                    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "4F81BD" } };
+                    cell.alignment = { horizontal: "center" };
+        
+                });
+                worksheet.eachRow((row, rowIndex) => {
+                    row.eachCell((cell, colIndex) => {
+                        let sColumnHeader = aHeaderRow[colIndex - 1]; // Get the column header
+                
+                        // If the column is a weekend, apply gray fill to the entire column
+                        if (aWeekendColumns.includes(sColumnHeader)) {
+                            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D3D3D3" } };
+                        }
+                    });
+                });
+        
+                var aData = [];
+        
+                aTimesheetRows.forEach(function (oTimesheetRow, index) {
+                    var aEmployeeCells = aEmployeeRows[index].getCells();
+                    var aTimesheetCells = oTimesheetRow.getCells();
+        
+                    var aRowData = [
+                        aEmployeeCells[0].getText(),
+                        aEmployeeCells[1].getText(),
+                        aEmployeeCells[2].getText(),
+                        aEmployeeCells[3].getText()
+                    ];
+        
+                    for (var j = 1; j < aTimesheetCells.length; j++) {
+                        var oCell = aTimesheetCells[j];
+                        var sCellValue = "";
+        
+                        if (oCell.getMetadata().getName() === "sap.m.Input") {
+                            sCellValue = oCell.getValue();
+                        } else if (oCell.getMetadata().getName() === "sap.m.Text") {
+                            sCellValue = oCell.getText();
+                        }
+                        aRowData.push(sCellValue);
+                    }
+                    aData.push(aRowData);
+                });
+        
+                // Add Data Rows
+                aData.forEach((row) => {
+                    let excelRow = worksheet.addRow(row);
+                    excelRow.eachCell((cell) => {
+                        cell.alignment = { horizontal: "center" };
+                    });
+                });
+        
+                // Convert Chart to Image and Insert into Excel
+                if (oVizFrame) {
+                    var sSVG = oVizFrame.exportToSVGString();
+                    var canvas = document.createElement("canvas");
+                    var ctx = canvas.getContext("2d");
+                    var img = new Image();
+                
+                    img.onload = function () {
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        ctx.drawImage(img, 0, 0);
+                        var chartImage = canvas.toDataURL("image/png");
+                
+                        // 📌 **STEP 2: Insert Image into Excel Sheet**
+                        var imageId = workbook.addImage({
+                            base64: chartImage.split(",")[1], // Extract base64 data
+                            extension: "png"
+                        });
+                
+                        worksheet.addImage(imageId, {
+                            tl: { col: 7, row: aData.length + 4 }, // Position below table
+                            ext: { width: 500, height: 300 }
+                        });
+                
+                        // 📌 **STEP 3: Save and Download Excel File**
+                        workbook.xlsx.writeBuffer().then(function (buffer) {
+                            var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                            saveAs(blob, "Timesheet.xlsx");
+                        });
+                    };
+                
+                    img.src = "data:image/svg+xml;base64," + btoa(sSVG);
+                } else {
+                    // If no chart, just download the Excel file
+                    workbook.xlsx.writeBuffer().then(function (buffer) {
+                        var blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                        File.save(blob, "Timesheet.xlsx");
+                    });
+                }
+                }  catch (error) {
+                console.error("Error generating Excel:", error);
+                MessageToast.show("Error generating Excel file.");
+            }
+        }
        
 
-
-        OnDownloaddata: function () {
-            var oEmployeeTable = this.byId("employeeTable");
-            var oTimesheetTable = this.byId("timesheetTable");
-
-            // Ensure SheetJS is available
-            if (typeof XLSX === "undefined") {
-                sap.m.MessageToast.show("SheetJS library is missing!");
-                return;
-            }
-
-            // **Get Employee Data (Master Table)**
-            var aEmployeeData = [];
-            var aEmployeeItems = oEmployeeTable.getItems();
-
-            aEmployeeItems.forEach(function (oItem) {
-                var oContext = oItem.getBindingContext();
-                if (oContext) {
-                    aEmployeeData.push(oContext.getObject());
-                }
-            });
-
-            // **Extract Column Headers (Dates)**
-            var aColumns = oTimesheetTable.getColumns();
-            var aDateHeaders = [];
-
-            // Extract date headers (skip the last column "Total")
-            for (var i = 1; i < aColumns.length - 1; i++) { // Skip first (invisible Employee column)
-                var sHeaderText = aColumns[i].getHeader().getText();
-                aDateHeaders.push(sHeaderText);
-            }
-
-            // **Get Timesheet Data (Detail Table)**
-            var aTimesheetData = [];
-            var aTableItems = oTimesheetTable.getItems();
-
-            aTableItems.forEach(function (oItem) {
-                var aCells = oItem.getCells();
-                var oRowData = {};
-
-                // **Extract Employee Name**
-                var sEmployeeName = aCells[0].getText(); // Employee Name is stored in the first hidden column
-                oRowData["Employee Name"] = sEmployeeName;
-
-                // **Map values to corresponding date columns**
-                for (var i = 1; i < aDateHeaders.length + 1; i++) { // Start from index 1 (skip Employee Name)
-                    var oInput = aCells[i];
-                    if (oInput instanceof sap.m.Input) {
-                        oRowData[aDateHeaders[i - 1]] = oInput.getValue() || "0";
-                    }
-                }
-
-                // **Add Total Hours**
-                oRowData["Total Hours"] = aCells[aCells.length - 1].getValue() || "0";
-
-                aTimesheetData.push(oRowData);
-            });
-
-            // **Convert JSON Data to Excel Format**
-            var wb = XLSX.utils.book_new();
-
-            // Add Employee Data as Sheet
-            var wsEmployees = XLSX.utils.json_to_sheet(aEmployeeData);
-            XLSX.utils.book_append_sheet(wb, wsEmployees, "Employees");
-
-            // Add Timesheet Data as Sheet with Employee Name
-            var wsTimesheet = XLSX.utils.json_to_sheet(aTimesheetData);
-            XLSX.utils.book_append_sheet(wb, wsTimesheet, "Timesheet");
-
-            // **Download Excel File**
-            XLSX.writeFile(wb, "TimesheetData.xlsx");
-
-            sap.m.MessageToast.show("Excel file downloaded successfully!");
-        }
-
+        
+        
     });
 });
